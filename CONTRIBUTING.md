@@ -21,8 +21,19 @@ y la gestión académica y de pagos vive en el mismo sistema.
 ## Convenciones de código
 
 - **Idioma**: código e identificadores en inglés; documentación, specs y ADRs en español.
-- **Paquetes**: `com.jesuscastillo.escuela.<servicio>` con estructura por capas:
-  `api` (controllers, DTOs), `domain` (entidades, lógica), `infra` (repos, clientes, Kafka).
+- **Paquetes**: `com.jesuscastillo.escuela.<servicio>` con estructura por capa técnica
+  (la convención más común en la industria):
+  `controller` (REST), `service` (interfaces de negocio) + `service/impl`
+  (implementaciones anotadas con `@Service`), `repository` (Spring Data), `entity`
+  (JPA y enums), `dto` (records request/response), `config` (beans y seguridad),
+  `exception` (excepciones y handler RFC 7807).
+- **Servicios**: se declaran como interfaz + implementación. La interfaz documenta el
+  contrato de negocio ("Funcionalidad:"); la implementación documenta el flujo paso a paso
+  ("Flujo: 1... 2... 3..."), vive en `service/impl` con sufijo `Impl`, inyecta por
+  constructor (`@RequiredArgsConstructor`) y marca sus métodos con `@Transactional`
+  cuando tocan base de datos. Los controllers dependen de la interfaz, nunca del `Impl`.
+- **Logging**: `@Slf4j` (Logback, el default de Spring Boot). Nivel `info` para hitos del
+  flujo, `warn` para casos borde manejados, `error` solo para fallas reales.
 - **DTOs**: records de Java. Mapeo con MapStruct. Nunca exponer entidades JPA en la API.
 - **Errores**: formato RFC 7807 (`application/problem+json`) en todos los servicios.
 - **Config**: cero secretos en el repo o en el config repo — solo variables de entorno.
