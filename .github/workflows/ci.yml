@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  validate:
+    name: Validar infraestructura y estructura
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validar docker-compose
+        run: docker compose -f infra/docker-compose.yml config -q
+
+      - name: Verificar estructura del repo
+        run: |
+          for d in docs/specs docs/adr docs/diagrams contracts/openapi contracts/events services infra; do
+            test -d "$d" || { echo "Falta el directorio $d"; exit 1; }
+          done
+          test -f CONTRIBUTING.md || { echo "Falta CONTRIBUTING.md"; exit 1; }
+          echo "Estructura OK"
+
+  # Los jobs de build/test por servicio se agregan en la Fase 1 con filtros por paths,
+  # p. ej.: on.pull_request.paths: ["services/messaging/**"]

@@ -1,0 +1,26 @@
+# Java / Maven
+target/
+*.class
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs y locales
+*.log
+.env
+.env.*
+application-local.yml
+
+# Docker
+infra/volumes/

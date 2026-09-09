@@ -1,0 +1,39 @@
+%% C4 Nivel 2 — Contenedores
+flowchart TB
+    subgraph usuarios["Usuarios"]
+        tutor["👤 Tutor"]
+        maestro["👤 Maestro"]
+        direccion["👤 Dirección"]
+    end
+
+    web["Web App<br/>Angular (repo sistema-escolar-web)"]
+    tutor --> web
+    maestro --> web
+    direccion --> web
+
+    web --> gw["Gateway<br/>Spring Cloud Gateway<br/>rate limiting · @ApiVersion"]
+
+    subgraph backend["sistema-escolar (backend)"]
+        gw --> idp["Identity<br/>Spring Authorization Server<br/>OAuth2/OIDC · Passkeys WebAuthn"]
+        gw --> msg["Messaging<br/>conversaciones · ventanas de horario<br/>cola fuera-de-horario"]
+        gw --> aca["Academics<br/>tareas · calificaciones<br/>boletas PDF firmadas (JWS)"]
+        gw --> pay["Payments<br/>cuotas · webhooks firmados<br/>idempotencia · conciliación"]
+
+        msg -- "mensaje.creado" --> k[("Kafka<br/>bus de eventos + Cloud Bus")]
+        k --> mod["Moderation<br/>Spring AI · clasificación toxicidad<br/>strikes · buzón anti-bullying"]
+        mod -- "mensaje.aprobado / mensaje.retenido" --> k
+        k --> msg
+        k --> ntf["Notifications<br/>virtual threads Java 21"]
+        pay -- "pago.confirmado" --> k
+
+        cfg["Config Server<br/>backend Git: sistema-escolar-config"] -.-> gw & idp & msg & aca & pay & mod & ntf
+
+        msg --> dbm[("PG messaging")]
+        mod --> dbmo[("PG moderation<br/>+ pgvector")]
+        aca --> dba[("PG academics")]
+        pay --> dbp[("PG payments")]
+        idp --> dbi[("PG identity")]
+        aca --> minio[("MinIO<br/>archivos de tareas")]
+        msg --> redis[("Redis<br/>rate limit · caché")]
+        mod --> llm["Ollama (dev) / API LLM (prod)<br/>vía Spring AI"]
+    end

@@ -1,0 +1,16 @@
+%% C4 Nivel 1 — Contexto del sistema
+flowchart TB
+    tutor["👤 Tutor / Padre de familia<br/><small>Se comunica con maestros, revisa tareas,<br/>descarga boletas, paga cuotas</small>"]
+    maestro["👤 Maestro<br/><small>Atiende mensajes en horario laboral,<br/>publica tareas y calificaciones</small>"]
+    direccion["👤 Dirección / Orientación<br/><small>Gestiona strikes, atiende reportes<br/>de bullying, administra la escuela</small>"]
+
+    sistema["🏫 Sistema Escolar<br/><small>Comunicación con horarios y moderación IA,<br/>gestión académica y pagos</small>"]
+
+    llm["🤖 Proveedor LLM<br/><small>Ollama (dev) / API LLM (prod)<br/>vía Spring AI</small>"]
+    correo["📧 Proveedor de notificaciones<br/><small>email/push (mock en dev)</small>"]
+
+    tutor --> sistema
+    maestro --> sistema
+    direccion --> sistema
+    sistema --> llm
+    sistema --> correo
