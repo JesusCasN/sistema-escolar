@@ -1,0 +1,64 @@
+spring:
+  application:
+    name: identity
+  threads:
+    virtual:
+      enabled: true   # Java 21 Loom (ADR-004)
+  # Config Server (ADR-003) se conecta en una entrega posterior, cuando se agregue
+  # la dependencia spring-cloud-starter-config con su BOM. Por ahora, config local.
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/identity}
+    username: ${DB_USER:escuela}
+    password: ${DB_PASSWORD:escuela-local}
+  jpa:
+    hibernate:
+      ddl-auto: validate   # el esquema lo manda Flyway, JPA solo valida
+    open-in-view: false
+  flyway:
+    enabled: true
+  kafka:
+    bootstrap-servers: ${KAFKA_SERVERS:localhost:9092}
+    producer:
+      acks: all
+      properties:
+        enable.idempotence: true
+  # PROVISIONAL: usuario en memoria solo para probar los endpoints de administracion
+  # mientras no exista el Authorization Server. Se elimina en la siguiente entrega.
+  security:
+    user:
+      name: ${DEV_ADMIN_USER:direccion}
+      password: ${DEV_ADMIN_PASSWORD:cambiar-en-desarrollo}
+      roles: DIRECCION
+
+server:
+  port: 8081
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+escuela:
+  identidad:
+    # MVP: una sola escuela (SPEC-001). El claim schoolId sale de aqui.
+    school-id: ${SCHOOL_ID:5f3c1f9e-0000-4000-8000-000000000001}
+    invitacion:
+      vigencia: 72h
+      url-base: ${APP_URL_BASE:http://localhost:4200}
+    outbox:
+      intervalo-ms: 5000
+
+logging:
+  level:
+    com.jesuscastillo.escuela: INFO
