@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/JesusCasN/sistema-escolar/contracts/events/usuario.activado.v1.schema.json",
+  "title": "usuario.activado.v1",
+  "description": "Se publica cuando un usuario acepta su invitación y su cuenta pasa a ACTIVO. Productor: identity. Consumidores: messaging (directorios de conversación), notifications.",
+  "type": "object",
+  "required": ["eventId", "occurredAt", "type", "version", "payload"],
+  "properties": {
+    "eventId": { "type": "string", "format": "uuid" },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "type": { "const": "usuario.activado" },
+    "version": { "const": 1 },
+    "payload": {
+      "type": "object",
+      "required": ["userId", "schoolId", "rol", "nombre"],
+      "properties": {
+        "userId": { "type": "string", "format": "uuid" },
+        "schoolId": { "type": "string", "format": "uuid" },
+        "rol": { "enum": ["DIRECCION", "MAESTRO", "TUTOR", "ALUMNO"] },
+        "nombre": { "type": "string", "maxLength": 120 },
+        "vinculos": {
+          "type": "array",
+          "description": "Hijos (TUTOR) o grupos (MAESTRO) al momento de la activación",
+          "items": {
+            "type": "object",
+            "required": ["tipo", "id"],
+            "properties": {
+              "tipo": { "enum": ["HIJO", "GRUPO"] },
+              "id": { "type": "string", "format": "uuid" }
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

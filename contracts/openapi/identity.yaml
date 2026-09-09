@@ -1,0 +1,296 @@
+openapi: 3.1.0
+info:
+  title: identity — Servicio de identidad
+  version: 1.0.0
+  description: >
+    Alta de usuarios por invitación (sin auto-registro), activación con passkey o
+    contraseña, y perfil propio. Los endpoints estándar OAuth2/OIDC y el ceremonial
+    WebAuthn los provee Spring Authorization Server / Spring Security y no se documentan
+    aquí. Ver docs/specs/001-identity.md.
+servers:
+  - url: http://localhost:8081
+    description: local
+
+tags:
+  - name: admin
+    description: Gestión de usuarios (solo DIRECCION)
+  - name: invitaciones
+    description: Aceptación de invitaciones (público, con token de un solo uso)
+  - name: perfil
+    description: Perfil y credenciales propias (autenticado)
+
+paths:
+  /admin/usuarios:
+    post:
+      tags: [admin]
+      summary: Alta de usuario (genera invitación de un solo uso, TTL 72 h)
+      operationId: crearUsuario
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CrearUsuarioRequest' }
+      responses:
+        '201':
+          description: Usuario creado en estado PENDIENTE; invitación enviada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UsuarioResponse' }
+        '409':
+          description: El correo ya está registrado
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    get:
+      tags: [admin]
+      summary: Lista paginada de usuarios
+      operationId: listarUsuarios
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: rol, in: query, schema: { $ref: '#/components/schemas/Rol' } }
+        - { name: estado, in: query, schema: { $ref: '#/components/schemas/EstadoUsuario' } }
+        - { name: page, in: query, schema: { type: integer, default: 0 } }
+        - { name: size, in: query, schema: { type: integer, default: 20, maximum: 100 } }
+      responses:
+        '200':
+          description: Página de usuarios
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginaUsuarios' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/usuarios/{id}:
+    delete:
+      tags: [admin]
+      summary: Baja lógica (estado SUSPENDIDO; revoca sesiones y refresh tokens)
+      operationId: suspenderUsuario
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Suspendido }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/usuarios/{id}/reinvitar:
+    post:
+      tags: [admin]
+      summary: Regenera la invitación (invalida la anterior y revoca passkeys previas al aceptar)
+      operationId: reinvitarUsuario
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Nueva invitación generada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UsuarioResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: El usuario ya está ACTIVO (no aplica reinvitar)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /invitaciones/{token}:
+    get:
+      tags: [invitaciones]
+      summary: Valida una invitación (sin revelar datos sensibles)
+      operationId: validarInvitacion
+      parameters:
+        - { name: token, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Invitación vigente
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InvitacionResponse' }
+        '404': { description: No existe }
+        '410': { description: Expirada o ya usada }
+
+  /invitaciones/{token}/aceptar:
+    post:
+      tags: [invitaciones]
+      summary: Activa la cuenta registrando la credencial elegida
+      description: >
+        Con `metodo: PASSKEY` el cliente completa después el ceremonial WebAuthn de
+        registro contra los endpoints de Spring Security; con `metodo: PASSWORD` la
+        contraseña viaja en esta misma petición. El token es de un solo uso.
+      operationId: aceptarInvitacion
+      parameters:
+        - { name: token, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AceptarInvitacionRequest' }
+      responses:
+        '200':
+          description: Cuenta ACTIVA; se publica usuario.activado.v1
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UsuarioResponse' }
+        '410': { description: Expirada o ya usada }
+        '422':
+          description: Credencial inválida (política de contraseña, etc.)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /me:
+    get:
+      tags: [perfil]
+      summary: Perfil propio con vínculos (hijos si es TUTOR, grupos si es MAESTRO)
+      operationId: miPerfil
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Perfil
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PerfilResponse' }
+
+  /me/passkeys:
+    post:
+      tags: [perfil]
+      summary: Inicia el registro de una passkey adicional
+      operationId: agregarPasskey
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Opciones de creación WebAuthn (delegado a Spring Security) }
+    get:
+      tags: [perfil]
+      summary: Lista las passkeys propias
+      operationId: listarPasskeys
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Passkeys registradas
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/PasskeyResponse' }
+
+  /me/passkeys/{id}:
+    delete:
+      tags: [perfil]
+      summary: Revoca una passkey propia
+      operationId: revocarPasskey
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Revocada }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+
+  responses:
+    Forbidden:
+      description: El rol del token no permite esta operación
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NotFound:
+      description: Recurso inexistente
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+  schemas:
+    Rol:
+      type: string
+      enum: [DIRECCION, MAESTRO, TUTOR, ALUMNO]
+    EstadoUsuario:
+      type: string
+      enum: [PENDIENTE, ACTIVO, SUSPENDIDO]
+
+    CrearUsuarioRequest:
+      type: object
+      required: [nombre, correo, rol]
+      properties:
+        nombre: { type: string, maxLength: 120 }
+        correo: { type: string, format: email }
+        rol: { $ref: '#/components/schemas/Rol' }
+        hijosIds:
+          type: array
+          description: Solo para TUTOR — alumnos vinculados
+          items: { type: string, format: uuid }
+
+    UsuarioResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        nombre: { type: string }
+        correo: { type: string, format: email }
+        rol: { $ref: '#/components/schemas/Rol' }
+        estado: { $ref: '#/components/schemas/EstadoUsuario' }
+        invitacionExpiraEn: { type: string, format: date-time }
+
+    PaginaUsuarios:
+      type: object
+      properties:
+        contenido:
+          type: array
+          items: { $ref: '#/components/schemas/UsuarioResponse' }
+        pagina: { type: integer }
+        totalPaginas: { type: integer }
+        totalElementos: { type: integer }
+
+    InvitacionResponse:
+      type: object
+      properties:
+        nombre: { type: string, description: Solo nombre de pila, sin datos sensibles }
+        rol: { $ref: '#/components/schemas/Rol' }
+        expiraEn: { type: string, format: date-time }
+
+    AceptarInvitacionRequest:
+      type: object
+      required: [metodo]
+      properties:
+        metodo: { type: string, enum: [PASSKEY, PASSWORD] }
+        password:
+          type: string
+          description: Requerida solo si metodo=PASSWORD. Mínimo 12 caracteres.
+          minLength: 12
+
+    PerfilResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        nombre: { type: string }
+        rol: { $ref: '#/components/schemas/Rol' }
+        schoolId: { type: string, format: uuid }
+        vinculos:
+          type: array
+          description: Hijos (TUTOR) o grupos (MAESTRO)
+          items:
+            type: object
+            properties:
+              tipo: { type: string, enum: [HIJO, GRUPO] }
+              id: { type: string, format: uuid }
+              nombre: { type: string }
+
+    PasskeyResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        etiqueta: { type: string, description: "p. ej. 'Pixel de Ana'" }
+        creadaEn: { type: string, format: date-time }
+        ultimoUso: { type: string, format: date-time }
+
+    Problem:
+      type: object
+      description: RFC 7807
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }

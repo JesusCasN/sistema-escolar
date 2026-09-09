@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/JesusCasN/sistema-escolar/contracts/events/usuario.suspendido.v1.schema.json",
+  "title": "usuario.suspendido.v1",
+  "description": "Se publica cuando dirección suspende una cuenta. Productor: identity. Consumidores: messaging (cierra conversaciones activas), notifications.",
+  "type": "object",
+  "required": ["eventId", "occurredAt", "type", "version", "payload"],
+  "properties": {
+    "eventId": { "type": "string", "format": "uuid" },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "type": { "const": "usuario.suspendido" },
+    "version": { "const": 1 },
+    "payload": {
+      "type": "object",
+      "required": ["userId", "schoolId"],
+      "properties": {
+        "userId": { "type": "string", "format": "uuid" },
+        "schoolId": { "type": "string", "format": "uuid" },
+        "motivo": { "type": "string", "maxLength": 300 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
