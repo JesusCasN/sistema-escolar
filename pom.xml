@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.jesuscastillo.escuela</groupId>
+    <artifactId>sistema-escolar</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <packaging>pom</packaging>
+
+    <name>sistema-escolar</name>
+    <description>Agregador de los microservicios de la plataforma de comunicacion escuela-familia</description>
+
+    <!--
+        Agregador, no padre: aqui solo se listan los modulos. Cada servicio sigue
+        heredando de spring-boot-starter-parent por su cuenta, para que uno pueda
+        quedarse en una version anterior de Boot si una dependencia lo obliga (ADR-001).
+        El costo aceptado es repetir la configuracion de plugins en cada servicio.
+    -->
+    <modules>
+        <module>services/identity</module>
+    </modules>
+
+</project>

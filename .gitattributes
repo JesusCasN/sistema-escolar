@@ -1,2 +1,10 @@
+# Normalizacion de fin de linea para todo el repositorio.
+#
+# Se guarda todo con LF y se convierte al checkout segun el sistema. Los scripts
+# de Windows son la excepcion: .bat y .cmd deben quedar con CRLF o el interprete
+# de comandos puede fallar. Esta regla cubre mvnw.cmd de todos los servicios, por
+# eso vive aqui y no en cada uno.
 * text=auto eol=lf
+
 *.bat text eol=crlf
+*.cmd text eol=crlf

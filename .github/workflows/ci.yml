@@ -6,8 +6,8 @@ on:
   pull_request:
 
 jobs:
-  validate:
-    name: Validar infraestructura y estructura
+  estructura:
+    name: Estructura e infraestructura
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,5 +23,75 @@ jobs:
           test -f CONTRIBUTING.md || { echo "Falta CONTRIBUTING.md"; exit 1; }
           echo "Estructura OK"
 
-  # Los jobs de build/test por servicio se agregan en la Fase 1 con filtros por paths,
-  # p. ej.: on.pull_request.paths: ["services/messaging/**"]
+  contratos:
+    name: Contratos bien formados
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # El contrato es la fuente de verdad (ver CONTRIBUTING.md). Si no parsea,
+      # nada de lo que dependa de el es confiable.
+      - name: Validar OpenAPI y esquemas de eventos
+        run: |
+          python3 - <<'PY'
+          import json, pathlib, sys, yaml
+
+          errores = []
+
+          for ruta in sorted(pathlib.Path("contracts/openapi").glob("*.yaml")):
+              try:
+                  spec = yaml.safe_load(ruta.read_text(encoding="utf-8"))
+                  if "openapi" not in spec or "paths" not in spec:
+                      errores.append(f"{ruta}: le falta 'openapi' o 'paths'")
+                  else:
+                      print(f"OK  {ruta}  ({len(spec['paths'])} rutas)")
+              except Exception as e:
+                  errores.append(f"{ruta}: {e}")
+
+          for ruta in sorted(pathlib.Path("contracts/events").glob("*.schema.json")):
+              try:
+                  esquema = json.loads(ruta.read_text(encoding="utf-8"))
+                  if "$schema" not in esquema:
+                      errores.append(f"{ruta}: le falta '$schema'")
+                  else:
+                      print(f"OK  {ruta}")
+              except Exception as e:
+                  errores.append(f"{ruta}: {e}")
+
+          if errores:
+              print("\nContratos con problemas:", file=sys.stderr)
+              for e in errores:
+                  print(f"  - {e}", file=sys.stderr)
+              sys.exit(1)
+          PY
+
+  identity:
+    name: identity — build y tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Java 21 LTS: la misma version que exige el enforcer del pom (ver ADR-002).
+      - name: Configurar Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: temurin
+          cache: maven
+
+      # verify corre unitarios (surefire) e integracion (failsafe). Los tests de
+      # Testcontainers usan el Docker que ya trae el runner de GitHub.
+      - name: Build y tests
+        working-directory: services/identity
+        run: mvn -B -ntp verify
+
+      - name: Publicar reportes de test
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reportes-identity
+          path: services/identity/target/surefire-reports/
+          if-no-files-found: ignore
+
+# Conforme se agreguen servicios, cada uno lleva su job igual que identity.
+# Cuando sean varios, conviene filtrar por rutas para no reconstruir todo en cada PR.

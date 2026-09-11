@@ -1,0 +1,1166 @@
+{
+  "info": {
+    "name": "Identity - sistema-escolar",
+    "description": "Suite de pruebas del servicio identity (Entrega 2).\n\nCubre los 6 endpoints implementados, sus casos de error y las dos garantias de seguridad del flujo de invitaciones: que reinvitar invalida el token anterior, y que un token aceptado no sirve dos veces.\n\n--- REQUISITOS ---\n\n1. Infraestructura arriba: docker compose up -d desde infra/\n2. IdentityApplication corriendo en el puerto 8081\n\n--- COMO CORRERLA ---\n\nLas carpetas van en orden y algunas dependen de la anterior. Hay DOS pausas manuales para copiar tokens del log de la aplicacion, porque el token en claro nunca sale por la API: en base solo se guarda su SHA-256. Cada pausa esta marcada con [PAUSA] en el nombre del request anterior.\n\nCarpeta 1 -> copiar tokenA\nCarpeta 3 -> copiar tokenB\n\nEl token se copia del bloque \"INVITACION (modo desarrollo)\" del log, es lo que va despues de /invitacion/. Se pega en la pestana Variables de la coleccion, columna CURRENT VALUE, y se guarda.\n\n--- LO QUE POSTMAN NO CUBRE ---\n\nEl outbox transaccional. Eso se verifica en terminal:\n\n  docker exec se-postgres psql -U escuela -d identity -c \"select type, aggregate_id, created_at, published_at from outbox_event order by created_at;\"\n\n  docker exec se-kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic escuela.identity.usuario.activado --from-beginning --timeout-ms 10000\n\nDespues de la carpeta 4 debe existir usuario.activado; despues de la 5, usuario.suspendido. Ambos con published_at lleno tras unos 5 segundos (el publicador corre cada 5000 ms).\n\n--- CREDENCIALES ---\n\nEl usuario direccion / cambiar-en-desarrollo es PROVISIONAL y vive en el application.yml. Desaparece cuando entre el Authorization Server (Entrega 3).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "basic",
+    "basic": [
+      { "key": "username", "value": "{{adminUser}}", "type": "string" },
+      { "key": "password", "value": "{{adminPassword}}", "type": "string" }
+    ]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8081" },
+    { "key": "adminUser", "value": "direccion" },
+    { "key": "adminPassword", "value": "cambiar-en-desarrollo" },
+    { "key": "maestroId", "value": "" },
+    { "key": "tutorId", "value": "" },
+    { "key": "correoMaestro", "value": "" },
+    { "key": "correoTutor", "value": "" },
+    { "key": "tokenA", "value": "" },
+    { "key": "tokenB", "value": "" },
+    { "key": "passkeyUsuarioId", "value": "" },
+    { "key": "tokenPasskey", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "0. Salud",
+      "description": "Confirma que la aplicacion arranco y que Postgres responde. Si esto falla, lo demas no tiene caso.",
+      "item": [
+        {
+          "name": "GET /actuator/health",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/actuator/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["actuator", "health"]
+            },
+            "description": "Endpoint publico: esta en la lista de permitAll del SecurityConfig."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "",
+                  "pm.test('el servicio reporta UP', () => {",
+                  "    pm.expect(pm.response.json().status).to.eql('UP');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "1. Alta de usuarios",
+      "description": "POST /admin/usuarios. El alta nunca lleva contrasena: dirección da de alta a la persona y la credencial la define ella al aceptar la invitacion (SPEC-001).\n\n[PAUSA] Al terminar esta carpeta, copia el token del log a la variable tokenA.",
+      "item": [
+        {
+          "name": "Alta de maestro -> 201  [PAUSA: copia tokenA]",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Ana Ruiz\",\n  \"correo\": \"{{correoMaestro}}\",\n  \"rol\": \"MAESTRO\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/usuarios",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "usuarios"]
+            },
+            "description": "Genera un correo unico en cada corrida para que la coleccion se pueda reejecutar sin chocar con la restriccion de correo unico.\n\nAL TERMINAR: busca en el log el bloque \"INVITACION (modo desarrollo)\" y copia lo que va despues de /invitacion/ a la variable de coleccion tokenA (columna Current value)."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('correoMaestro', 'ana.' + Date.now() + '@escuela.mx');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('nace en estado PENDIENTE', () => {",
+                  "    pm.expect(body.estado).to.eql('PENDIENTE');",
+                  "});",
+                  "",
+                  "pm.test('se emitio invitacion con vencimiento', () => {",
+                  "    pm.expect(body.invitacionExpiraEn).to.not.be.null;",
+                  "});",
+                  "",
+                  "pm.test('no filtra campos internos de la entidad', () => {",
+                  "    const texto = pm.response.text();",
+                  "    pm.expect(texto).to.not.include('passwordHash');",
+                  "    pm.expect(texto).to.not.include('schoolId');",
+                  "});",
+                  "",
+                  "pm.collectionVariables.set('maestroId', body.id);",
+                  "console.log('>>> Copia el token del log a la variable tokenA');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Alta de tutor con hijos -> 201",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Luis Mora\",\n  \"correo\": \"{{correoTutor}}\",\n  \"rol\": \"TUTOR\",\n  \"hijosIds\": [\"11111111-1111-4111-8111-111111111111\"]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/usuarios",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "usuarios"]
+            },
+            "description": "Los hijosIds solo aplican al rol TUTOR: se guardan como vinculos de tipo HIJO.\n\nOJO: los vinculos NO se exponen en UsuarioResponse, asi que desde Postman solo se puede confirmar el 201. Para verlos:\n\n  docker exec se-postgres psql -U escuela -d identity -c \"select * from vinculo;\""
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('correoTutor', 'luis.' + Date.now() + '@correo.mx');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('queda registrado como TUTOR', () => {",
+                  "    pm.expect(body.rol).to.eql('TUTOR');",
+                  "});",
+                  "",
+                  "pm.collectionVariables.set('tutorId', body.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Maestro con hijosIds -> se ignoran",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Rosa Diaz\",\n  \"correo\": \"rosa.{{$timestamp}}@escuela.mx\",\n  \"rol\": \"MAESTRO\",\n  \"hijosIds\": [\"22222222-2222-4222-8222-222222222222\"]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/usuarios",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "usuarios"]
+            },
+            "description": "Regla de negocio, no validacion de formato: un maestro no tiene hijos vinculados, asi que los hijosIds se descartan en silencio en lugar de rechazar la peticion.\n\nSe verifica en base: la tabla vinculo no debe tener filas para este usuario."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created: no rechaza la peticion', () => {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test('se dio de alta como MAESTRO', () => {",
+                  "    pm.expect(pm.response.json().rol).to.eql('MAESTRO');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Correo duplicado -> 409",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Ana Ruiz\",\n  \"correo\": \"{{correoMaestro}}\",\n  \"rol\": \"MAESTRO\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/usuarios",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "usuarios"]
+            },
+            "description": "Reusa el correo del primer request. Comprueba ConflictoException y el formato RFC 7807."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 Conflict', () => pm.response.to.have.status(409));",
+                  "",
+                  "pm.test('el error viene en RFC 7807', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type'))",
+                  "      .to.include('application/problem+json');",
+                  "});",
+                  "",
+                  "pm.test('trae title y detail', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.title).to.be.a('string');",
+                  "    pm.expect(body.detail).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Correo con mayusculas y espacios -> se normaliza",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Sofia Lara\",\n  \"correo\": \"  SOFIA.{{$timestamp}}@Escuela.MX  \",\n  \"rol\": \"MAESTRO\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/usuarios",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "usuarios"]
+            },
+            "description": "El correo se recorta y se pasa a minusculas antes de guardarse, para que la restriccion de unicidad no se pueda burlar cambiando mayusculas."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "",
+                  "const correo = pm.response.json().correo;",
+                  "",
+                  "pm.test('se guardo en minusculas y sin espacios', () => {",
+                  "    pm.expect(correo).to.eql(correo.trim().toLowerCase());",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Correo invalido -> 422",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Ana Ruiz\",\n  \"correo\": \"esto-no-es-un-correo\",\n  \"rol\": \"MAESTRO\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/usuarios",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "usuarios"]
+            },
+            "description": "Validacion de formato con @Email. El detail debe decir que campo fallo."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('422 Unprocessable Entity', () => pm.response.to.have.status(422));",
+                  "",
+                  "pm.test('el detalle nombra el campo que fallo', () => {",
+                  "    pm.expect(pm.response.json().detail).to.include('correo');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Sin nombre -> 422",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"correo\": \"sin.nombre@escuela.mx\",\n  \"rol\": \"MAESTRO\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/usuarios",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "usuarios"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('422 Unprocessable Entity', () => pm.response.to.have.status(422));",
+                  "",
+                  "pm.test('el detalle nombra el campo que fallo', () => {",
+                  "    pm.expect(pm.response.json().detail).to.include('nombre');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Sin autenticacion -> 401",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Intruso\",\n  \"correo\": \"intruso@escuela.mx\",\n  \"rol\": \"DIRECCION\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/usuarios",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "usuarios"]
+            },
+            "description": "Los endpoints de /admin exigen autenticacion. El cuerpo del 401 viene vacio, por eso este test no intenta leer JSON."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));",
+                  "",
+                  "pm.test('reta con Basic', () => {",
+                  "    pm.expect(pm.response.headers.get('WWW-Authenticate') || '')",
+                  "      .to.include('Basic');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Credenciales incorrectas -> 401",
+          "request": {
+            "auth": {
+              "type": "basic",
+              "basic": [
+                { "key": "username", "value": "direccion", "type": "string" },
+                { "key": "password", "value": "contrasena-equivocada", "type": "string" }
+              ]
+            },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Intruso\",\n  \"correo\": \"intruso2@escuela.mx\",\n  \"rol\": \"DIRECCION\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/usuarios",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "usuarios"]
+            },
+            "description": "Debe dar 401 LIMPIO. Si en el log aparece un stack trace de 'Invalid encoded Argon2-hash', el hash del application.yml no esta bien formado."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));",
+                  "",
+                  "console.log('>>> Revisa el log: no debe haber stack trace de Argon2');"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Listado",
+      "description": "GET /admin/usuarios. La forma de la pagina es propia (contenido, pagina, totalPaginas, totalElementos) y no el Page de Spring Data, para no atar el contrato publico a la serializacion interna del framework.",
+      "item": [
+        {
+          "name": "Listar todos -> 200",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/usuarios",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "usuarios"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('devuelve la forma de pagina del contrato', () => {",
+                  "    pm.expect(body).to.have.property('contenido');",
+                  "    pm.expect(body).to.have.property('pagina');",
+                  "    pm.expect(body).to.have.property('totalPaginas');",
+                  "    pm.expect(body).to.have.property('totalElementos');",
+                  "});",
+                  "",
+                  "pm.test('no expone la estructura interna de Spring Data', () => {",
+                  "    pm.expect(body).to.not.have.property('pageable');",
+                  "    pm.expect(body).to.not.have.property('sort');",
+                  "});",
+                  "",
+                  "pm.test('ningun usuario expone su hash de contrasena', () => {",
+                  "    pm.expect(pm.response.text()).to.not.include('passwordHash');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Filtrar por rol y estado -> 200",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/usuarios?rol=MAESTRO&estado=PENDIENTE",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "usuarios"],
+              "query": [
+                { "key": "rol", "value": "MAESTRO" },
+                { "key": "estado", "value": "PENDIENTE" }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "",
+                  "const contenido = pm.response.json().contenido;",
+                  "",
+                  "pm.test('todos cumplen los dos filtros', () => {",
+                  "    contenido.forEach(u => {",
+                  "        pm.expect(u.rol).to.eql('MAESTRO');",
+                  "        pm.expect(u.estado).to.eql('PENDIENTE');",
+                  "    });",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "size=500 -> se topa en 100",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/usuarios?size=500",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "usuarios"],
+              "query": [{ "key": "size", "value": "500" }]
+            },
+            "description": "El controller aplica Math.clamp(size, 1, 100): proteccion contra que alguien pida decenas de miles de registros de un jalon."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "",
+                  "pm.test('nunca devuelve mas de 100 registros', () => {",
+                  "    pm.expect(pm.response.json().contenido.length).to.be.at.most(100);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Reinvitacion",
+      "description": "POST /admin/usuarios/{id}/reinvitar. Para cuando al usuario se le vencio la liga o nunca le llego.\n\nLa garantia importante: emitir una invitacion nueva INVALIDA la anterior. Solo puede haber una vigente a la vez, para que un token filtrado deje de servir en cuanto se reinvita.\n\n[PAUSA] Despues del primer request, copia el token nuevo del log a la variable tokenB.",
+      "item": [
+        {
+          "name": "Reinvitar al maestro -> 200  [PAUSA: copia tokenB]",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/usuarios/{{maestroId}}/reinvitar",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "usuarios", "{{maestroId}}", "reinvitar"]
+            },
+            "description": "Sin cuerpo.\n\nAL TERMINAR: en el log sale un bloque de invitacion NUEVO, con un token distinto. Copialo a la variable tokenB."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.collectionVariables.get('maestroId')) {",
+                  "    throw new Error('Falta maestroId. Corre primero la carpeta 1.');",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('sigue PENDIENTE', () => {",
+                  "    pm.expect(body.estado).to.eql('PENDIENTE');",
+                  "});",
+                  "",
+                  "pm.test('trae un vencimiento nuevo', () => {",
+                  "    pm.expect(body.invitacionExpiraEn).to.not.be.null;",
+                  "});",
+                  "",
+                  "console.log('>>> Copia el token NUEVO del log a la variable tokenB');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reinvitar a un id inexistente -> 404",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/usuarios/99999999-9999-4999-8999-999999999999/reinvitar",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "usuarios", "99999999-9999-4999-8999-999999999999", "reinvitar"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 Not Found', () => pm.response.to.have.status(404));",
+                  "",
+                  "pm.test('el error viene en RFC 7807', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type'))",
+                  "      .to.include('application/problem+json');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. Invitaciones (publico)",
+      "description": "Endpoints publicos por diseno: quien llega con la liga del correo todavia no tiene cuenta activa. La proteccion viene del token de un solo uso, no de la sesion.\n\nLos dos requests que de verdad importan aqui son el del tokenA (410 por invalidacion) y el del token reusado (410 por un solo uso). Esos dos no confirman que funcione: confirman que es SEGURO.",
+      "item": [
+        {
+          "name": "tokenA (el viejo) -> 410  [SEGURIDAD]",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/invitaciones/{{tokenA}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["invitaciones", "{{tokenA}}"]
+            },
+            "description": "El tokenA se emitio en la carpeta 1 y quedo invalidado al reinvitar en la carpeta 3.\n\nSi esto devolviera 200 significaria que hay dos ligas vivas para la misma cuenta, y bastaria con que se filtrara la vieja para entrar."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.collectionVariables.get('tokenA')) {",
+                  "    throw new Error(",
+                  "        'Falta tokenA. Copialo del log del primer alta (bloque INVITACION, ' +",
+                  "        'lo que va despues de /invitacion/) y pegalo en Variables > Current value.');",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('410 Gone: reinvitar invalido el token anterior', () => {",
+                  "    pm.response.to.have.status(410);",
+                  "});",
+                  "",
+                  "pm.test('el error viene en RFC 7807', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type'))",
+                  "      .to.include('application/problem+json');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Token inexistente -> 404",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/invitaciones/token-que-nunca-existio",
+              "host": ["{{baseUrl}}"],
+              "path": ["invitaciones", "token-que-nunca-existio"]
+            },
+            "description": "404 y 410 no son lo mismo y el front los trata distinto: 404 es 'no existe', 410 es 'existio y ya no sirve'."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 Not Found, no 410', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "tokenB -> 200 y solo el primer nombre  [PRIVACIDAD]",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/invitaciones/{{tokenB}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["invitaciones", "{{tokenB}}"]
+            },
+            "description": "Valida SIN consumir: se puede llamar las veces que sea y el token sigue sirviendo. Es para que el front pinte la pantalla antes de que la persona decida.\n\nDevuelve 'Ana', no 'Ana Ruiz', y no incluye el correo. Como el endpoint es publico, alguien que se robe un token solo obtiene un nombre de pila."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.collectionVariables.get('tokenB')) {",
+                  "    throw new Error(",
+                  "        'Falta tokenB. Copialo del log de la reinvitacion (carpeta 3) y pegalo ' +",
+                  "        'en Variables > Current value.');",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('solo revela el primer nombre', () => {",
+                  "    pm.expect(body.nombre).to.eql('Ana');",
+                  "});",
+                  "",
+                  "pm.test('no expone el correo del invitado', () => {",
+                  "    pm.expect(pm.response.text()).to.not.include('@');",
+                  "});",
+                  "",
+                  "pm.test('devuelve rol y vencimiento', () => {",
+                  "    pm.expect(body.rol).to.eql('MAESTRO');",
+                  "    pm.expect(body.expiraEn).to.not.be.null;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Aceptar con contrasena corta -> 422",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"metodo\": \"PASSWORD\",\n  \"password\": \"corta\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/invitaciones/{{tokenB}}/aceptar",
+              "host": ["{{baseUrl}}"],
+              "path": ["invitaciones", "{{tokenB}}", "aceptar"]
+            },
+            "description": "Minimo 12 caracteres (@Size). Importante: el token NO se consume en un intento fallido, sigue vigente para el request siguiente."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('422 Unprocessable Entity', () => pm.response.to.have.status(422));",
+                  "",
+                  "pm.test('el detalle menciona la contrasena', () => {",
+                  "    pm.expect(pm.response.json().detail.toLowerCase()).to.include('contrasena');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Aceptar con metodo PASSWORD sin contrasena -> 422",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"metodo\": \"PASSWORD\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/invitaciones/{{tokenB}}/aceptar",
+              "host": ["{{baseUrl}}"],
+              "path": ["invitaciones", "{{tokenB}}", "aceptar"]
+            },
+            "description": "Regla que no se puede expresar con anotaciones: la contrasena es obligatoria solo cuando el metodo es PASSWORD. La lanza el service como IllegalArgumentException y el handler la traduce a 422."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('422 Unprocessable Entity', () => pm.response.to.have.status(422));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Aceptar -> 200 ACTIVO",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"metodo\": \"PASSWORD\",\n  \"password\": \"contrasena-larga-123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/invitaciones/{{tokenB}}/aceptar",
+              "host": ["{{baseUrl}}"],
+              "path": ["invitaciones", "{{tokenB}}", "aceptar"]
+            },
+            "description": "En UNA sola transaccion: se hashea la contrasena con Argon2id, se activa el usuario, se marca la invitacion como usada y se registra usuario.activado en el outbox.\n\nSi cualquiera de los cuatro falla se revierten los cuatro. Ese es el punto del patron outbox: es imposible que quede un usuario activo sin su evento, o un evento de un usuario que no se activo.\n\nVERIFICA DESPUES en terminal que el evento haya llegado a Kafka."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('la cuenta queda ACTIVA', () => {",
+                  "    pm.expect(body.estado).to.eql('ACTIVO');",
+                  "});",
+                  "",
+                  "pm.test('ya no hay invitacion vigente', () => {",
+                  "    pm.expect(body.invitacionExpiraEn).to.be.null;",
+                  "});",
+                  "",
+                  "pm.test('nunca devuelve la contrasena ni su hash', () => {",
+                  "    const texto = pm.response.text();",
+                  "    pm.expect(texto).to.not.include('contrasena-larga-123');",
+                  "    pm.expect(texto).to.not.include('argon2');",
+                  "});",
+                  "",
+                  "console.log('>>> Verifica el outbox: select type, published_at from outbox_event;');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reusar el token aceptado -> 410  [SEGURIDAD]",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"metodo\": \"PASSWORD\",\n  \"password\": \"otra-contrasena-larga\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/invitaciones/{{tokenB}}/aceptar",
+              "host": ["{{baseUrl}}"],
+              "path": ["invitaciones", "{{tokenB}}", "aceptar"]
+            },
+            "description": "La prueba de seguridad clave de todo el flujo: la invitacion es de un solo uso, asi que un token filtrado no sirve dos veces. Si esto diera 200, cualquiera con el token del correo podria cambiar la contrasena del maestro."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('410 Gone: el token es de un solo uso', () => {",
+                  "    pm.response.to.have.status(410);",
+                  "});",
+                  "",
+                  "pm.test('el mensaje orienta a pedir una invitacion nueva', () => {",
+                  "    pm.expect(pm.response.json().detail).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reinvitar a un usuario ya ACTIVO -> 409",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/usuarios/{{maestroId}}/reinvitar",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "usuarios", "{{maestroId}}", "reinvitar"]
+            },
+            "description": "No tiene sentido reinvitar a alguien que ya entro: si perdio el acceso, el camino es recuperacion de contrasena, no una invitacion nueva."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 Conflict', () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5. Baja logica",
+      "description": "DELETE /admin/usuarios/{id}. Dice DELETE pero no borra nada: deja al usuario en SUSPENDIDO.\n\nEn un sistema escolar no puedes borrar a un maestro que tiene calificaciones y mensajes historicos asociados; se rompe todo lo demas.",
+      "item": [
+        {
+          "name": "Suspender -> 204",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/usuarios/{{maestroId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "usuarios", "{{maestroId}}"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204 No Content', () => pm.response.to.have.status(204));",
+                  "",
+                  "pm.test('no devuelve cuerpo', () => {",
+                  "    pm.expect(pm.response.text()).to.be.empty;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Sigue existiendo, en SUSPENDIDO",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/usuarios?estado=SUSPENDIDO",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "usuarios"],
+              "query": [{ "key": "estado", "value": "SUSPENDIDO" }]
+            },
+            "description": "La prueba de que fue baja logica y no borrado: el registro sigue ahi."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "",
+                  "const ids = pm.response.json().contenido.map(u => u.id);",
+                  "",
+                  "pm.test('el usuario suspendido sigue existiendo', () => {",
+                  "    pm.expect(ids).to.include(pm.collectionVariables.get('maestroId'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Suspender otra vez -> 204 sin evento nuevo",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/usuarios/{{maestroId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "usuarios", "{{maestroId}}"]
+            },
+            "description": "La operacion es idempotente: responde 204 igual, pero NO vuelve a registrar usuario.suspendido en el outbox. Si emitiera dos, los consumidores harian el trabajo doble.\n\nVERIFICA en terminal que haya un solo usuario.suspendido para este aggregate_id:\n\n  docker exec se-postgres psql -U escuela -d identity -c \"select type, count(*) from outbox_event group by type;\""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204 No Content', () => pm.response.to.have.status(204));",
+                  "",
+                  "console.log('>>> Confirma en base que solo hay UN usuario.suspendido');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Suspender un id inexistente -> 404",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/usuarios/99999999-9999-4999-8999-999999999999",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "usuarios", "99999999-9999-4999-8999-999999999999"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 Not Found', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "6. Activacion con passkey",
+      "description": "Camino alterno de activacion. Necesita un usuario nuevo y su propio token, porque el del maestro ya se consumio.\n\n[PAUSA] Copia el token del alta a la variable tokenPasskey.",
+      "item": [
+        {
+          "name": "Alta para passkey -> 201  [PAUSA: copia tokenPasskey]",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Carmen Vela\",\n  \"correo\": \"carmen.{{$timestamp}}@escuela.mx\",\n  \"rol\": \"MAESTRO\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/usuarios",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "usuarios"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "",
+                  "pm.collectionVariables.set('passkeyUsuarioId', pm.response.json().id);",
+                  "console.log('>>> Copia el token del log a la variable tokenPasskey');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Aceptar con PASSKEY -> 200 sin contrasena",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"metodo\": \"PASSKEY\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/invitaciones/{{tokenPasskey}}/aceptar",
+              "host": ["{{baseUrl}}"],
+              "path": ["invitaciones", "{{tokenPasskey}}", "aceptar"]
+            },
+            "description": "Con passkey no se manda contrasena y la cuenta queda ACTIVA sin passwordHash. El ceremonial WebAuthn se completa contra Spring Security en el primer acceso (Entrega 3).\n\nVERIFICA en base que password_hash quede NULL:\n\n  docker exec se-postgres psql -U escuela -d identity -c \"select nombre, estado, password_hash from usuario where password_hash is null;\""
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.collectionVariables.get('tokenPasskey')) {",
+                  "    throw new Error('Falta tokenPasskey. Copialo del log del request anterior.');",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "",
+                  "pm.test('la cuenta queda ACTIVA sin contrasena', () => {",
+                  "    pm.expect(pm.response.json().estado).to.eql('ACTIVO');",
+                  "});",
+                  "",
+                  "console.log('>>> Confirma en base que password_hash quedo NULL');"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "7. Documentacion y pendientes",
+      "description": "El contrato en contracts/openapi/identity.yaml declara mas endpoints de los implementados. Eso es normal en contract-first: el contrato va primero.",
+      "item": [
+        {
+          "name": "El Swagger generado responde",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v3/api-docs",
+              "host": ["{{baseUrl}}"],
+              "path": ["v3", "api-docs"]
+            },
+            "description": "Este JSON es el reflejo del CODIGO. La fuente de verdad es contracts/openapi/identity.yaml, escrito a mano.\n\nSi difieren, el que esta mal es el codigo — salvo que el cambio del contrato sea deliberado, y entonces se actualiza el YAML primero.\n\nLa comparacion automatica se agrega al CI en la Entrega 3, junto con los tests de Testcontainers."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "",
+                  "const rutas = Object.keys(pm.response.json().paths);",
+                  "",
+                  "pm.test('publica los endpoints implementados', () => {",
+                  "    pm.expect(rutas).to.include('/admin/usuarios');",
+                  "    pm.expect(rutas).to.include('/admin/usuarios/{id}');",
+                  "    pm.expect(rutas).to.include('/admin/usuarios/{id}/reinvitar');",
+                  "    pm.expect(rutas).to.include('/invitaciones/{token}');",
+                  "    pm.expect(rutas).to.include('/invitaciones/{token}/aceptar');",
+                  "});",
+                  "",
+                  "console.log('Rutas publicadas: ' + rutas.join(', '));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /me -> 404 (Entrega 3, aun no existe)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["me"]
+            },
+            "description": "Declarado en el contrato pero sin implementar. Llega autenticado y no encuentra handler, por eso 404 y no 401.\n\nCuando se implemente en la Entrega 3, este test va a fallar — y eso es correcto: es la senal de que hay que actualizarlo."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404: declarado en el contrato, no implementado todavia', () => {",
+                  "    pm.response.to.have.status(404);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

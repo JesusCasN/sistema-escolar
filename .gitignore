@@ -24,3 +24,6 @@ application-local.yml
 
 # Docker
 infra/volumes/
+
+# Notas de trabajo personales: nunca van al repositorio
+*.local.md
