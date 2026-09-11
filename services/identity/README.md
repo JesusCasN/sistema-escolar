@@ -54,6 +54,23 @@ docker exec se-postgres psql -U escuela -d identity \
   -c "select type, count(*) total, count(published_at) publicados from outbox_event group by type;"
 ```
 
+## Pruebas
+
+```bash
+./mvnw -pl services/identity test      # unitarios, sin Docker
+./mvnw -pl services/identity verify    # + integración con Testcontainers
+```
+
+Las de integración (`*IT`) levantan Postgres y Kafka en contenedores, con las mismas
+imágenes de `infra/docker-compose.yml`, y no necesitan que la infraestructura local esté
+arriba: Testcontainers publica puertos aleatorios. Solo hace falta que Docker esté
+corriendo.
+
+`OutboxKafkaIT` consume el mensaje real del tópico y lo valida contra
+[`contracts/events/usuario.activado.v1.schema.json`](../../contracts/events/usuario.activado.v1.schema.json),
+el archivo del contrato y no una copia. El esquema declara `additionalProperties: false`,
+así que un campo de más en el payload rompe la prueba.
+
 ## Decisiones de diseño
 
 - **El token de invitación nunca se persiste**: en base de datos vive su hash SHA-256.
@@ -73,5 +90,8 @@ docker exec se-postgres psql -U escuela -d identity \
 
 - [x] Entrega 1 — esqueleto: entidades, migración V1, repositorios, errores RFC 7807
 - [x] Entrega 2 — flujo de invitaciones (alta, validación, activación), outbox → Kafka
-- [ ] Entrega 3 — Authorization Server, passkeys (WebAuthn), endpoint `/me` y pruebas
-      de integración con Testcontainers
+- Entrega 3:
+  - [x] Pruebas de integración con Testcontainers del flujo existente
+  - [ ] Authorization Server (OAuth2/OIDC)
+  - [ ] Passkeys (WebAuthn)
+  - [ ] Endpoint `/me`
