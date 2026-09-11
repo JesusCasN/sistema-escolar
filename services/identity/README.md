@@ -5,22 +5,31 @@ con passkey o contraseña, y emisión de tokens OAuth2/OIDC con Spring Authoriza
 
 - Spec: [`docs/specs/001-identity.md`](../../docs/specs/001-identity.md)
 - Contrato: [`contracts/openapi/identity.yaml`](../../contracts/openapi/identity.yaml)
-- Puerto local: **8081** · Base: `identity` (Postgres) · Swagger: `/swagger-ui.html`
+- Eventos: [`contracts/events/`](../../contracts/events/)
+- Puerto local: **8081** · Base: `identity` (Postgres en el **5433**) · Swagger: `/swagger-ui.html`
 
 ## Correr en local
 
 Requiere la infraestructura del repo levantada:
 
 ```bash
-cd ../../infra && docker compose up -d
-cd ../services/identity && mvn spring-boot:run
+cd infra && docker compose up -d
+cd .. && ./mvnw -pl services/identity spring-boot:run
 ```
 
-## Probar el flujo de alta de punta a punta
+El wrapper vive en la raíz del repositorio, así que no hace falta tener Maven instalado.
 
-El alta la hace dirección; mientras no exista el Authorization Server, los endpoints de
-administración se protegen con autenticación básica (usuario `direccion`, contraseña en
-`application.yml`, sobreescribible con `DEV_ADMIN_PASSWORD`).
+## Probar el flujo completo
+
+La forma rápida es la colección de Postman:
+[`docs/postman/identity.postman_collection.json`](../../docs/postman/identity.postman_collection.json).
+Trae los 6 endpoints implementados, sus casos de error y las dos pruebas de seguridad del
+flujo de invitaciones.
+
+El alta la hace dirección. Mientras no exista el Authorization Server, los endpoints de
+administración se protegen con autenticación básica: usuario `direccion`, contraseña
+`cambiar-en-desarrollo`. En el `application.yml` no está en claro, está su hash Argon2id;
+sirve únicamente contra `localhost` y desaparece con la Entrega 3.
 
 ```bash
 # 1. Alta de un maestro
@@ -38,7 +47,12 @@ curl -X POST http://localhost:8081/invitaciones/{token}/aceptar \
 ```
 
 Al activarse se registra `usuario.activado.v1` en la tabla `outbox_event` y el publicador
-lo envía a Kafka en la siguiente pasada (cada 5 s por defecto).
+lo envía a Kafka en la siguiente pasada (cada 5 s por defecto). Para comprobarlo:
+
+```bash
+docker exec se-postgres psql -U escuela -d identity \
+  -c "select type, count(*) total, count(published_at) publicados from outbox_event group by type;"
+```
 
 ## Decisiones de diseño
 
@@ -46,6 +60,11 @@ lo envía a Kafka en la siguiente pasada (cada 5 s por defecto).
 - **Transactional outbox**: el evento se guarda en la misma transacción que el cambio de
   estado, así una caída de Kafka no revierte la activación ni pierde el evento. La entrega
   es "al menos una vez", por eso los consumidores deben ser idempotentes usando `eventId`.
+- **Los eventos son records tipados** en el paquete `event/`, no mapas: cada uno aporta su
+  propio tipo y versión, y corresponde 1:1 con su esquema en `contracts/events`. Si el
+  esquema cambia y el record no, el compilador lo detecta.
+- **Publicar es infraestructura**: el publicador del outbox vive en `messaging/publisher`,
+  no en `service/impl`. En `service` solo hay reglas de negocio.
 - **Contraseñas con Argon2id**; una cuenta activada con passkey no guarda contraseña.
 - El endpoint público de validación devuelve solo el primer nombre y el rol: no revela
   correo ni identificador.

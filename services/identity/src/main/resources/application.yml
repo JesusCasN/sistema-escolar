@@ -7,7 +7,9 @@ spring:
   # Config Server (ADR-003) se conecta en una entrega posterior, cuando se agregue
   # la dependencia spring-cloud-starter-config con su BOM. Por ahora, config local.
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5432/identity}
+    # Puerto 5433: el contenedor se publica ahi para no chocar con una
+    # instalacion nativa de PostgreSQL en 5432 (ver infra/README.md).
+    url: ${DB_URL:jdbc:postgresql://localhost:5433/identity}
     username: ${DB_USER:escuela}
     password: ${DB_PASSWORD:escuela-local}
   jpa:
@@ -27,7 +29,7 @@ spring:
   security:
     user:
       name: ${DEV_ADMIN_USER:direccion}
-      password: ${DEV_ADMIN_PASSWORD:cambiar-en-desarrollo}
+      password: '$argon2id$v=19$m=16384,t=2,p=1$Ap8fum8nmY/rZ0u/PhpXjw$EQyD0p52Jx3a5xi0/H1LaohCd782u09cc7C2zb0XQPI'
       roles: DIRECCION
 
 server:

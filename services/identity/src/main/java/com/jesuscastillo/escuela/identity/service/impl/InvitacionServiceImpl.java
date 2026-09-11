@@ -6,7 +6,7 @@ import com.jesuscastillo.escuela.identity.dto.InvitacionResponse;
 import com.jesuscastillo.escuela.identity.dto.UsuarioResponse;
 import com.jesuscastillo.escuela.identity.entity.Invitacion;
 import com.jesuscastillo.escuela.identity.entity.Usuario;
-import com.jesuscastillo.escuela.identity.entity.Vinculo;
+import com.jesuscastillo.escuela.identity.event.UsuarioActivadoV1;
 import com.jesuscastillo.escuela.identity.exception.InvitacionNoVigenteException;
 import com.jesuscastillo.escuela.identity.exception.RecursoNoEncontradoException;
 import com.jesuscastillo.escuela.identity.mapper.UsuarioMapper;
@@ -20,9 +20,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.List;
-import java.util.Map;
 
 /**
  * Implementación del servicio de invitaciones.
@@ -43,9 +40,6 @@ import java.util.Map;
 @RequiredArgsConstructor
 @Slf4j
 public class InvitacionServiceImpl implements InvitacionService {
-
-    private static final String EVENTO_ACTIVADO = "usuario.activado";
-    private static final int VERSION_EVENTO_ACTIVADO = 1;
 
     private final InvitacionRepository invitacionRepository;
     private final InvitationTokenService tokenService;
@@ -113,13 +107,7 @@ public class InvitacionServiceImpl implements InvitacionService {
         usuario.activar();
         invitacion.marcarUsada();
 
-        outboxService.registrar(EVENTO_ACTIVADO, VERSION_EVENTO_ACTIVADO, usuario.getId(),
-                Map.of(
-                        "userId", usuario.getId(),
-                        "schoolId", usuario.getSchoolId(),
-                        "rol", usuario.getRol(),
-                        "nombre", usuario.getNombre(),
-                        "vinculos", vinculosComoMapa(usuario.getVinculos())));
+        outboxService.registrar(UsuarioActivadoV1.de(usuario));
 
         log.info("Cuenta activada usuario={} rol={} metodo={}",
                 usuario.getId(), usuario.getRol(), request.metodo());
@@ -150,12 +138,6 @@ public class InvitacionServiceImpl implements InvitacionService {
         }
 
         return invitacion;
-    }
-
-    private static List<Map<String, Object>> vinculosComoMapa(List<Vinculo> vinculos) {
-        return vinculos.stream()
-                .map(v -> Map.<String, Object>of("tipo", v.getTipo(), "id", v.getRefId()))
-                .toList();
     }
 
     /** El endpoint publico de validacion no revela el nombre completo. */

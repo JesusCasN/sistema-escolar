@@ -36,4 +36,23 @@ public record CrearUsuarioRequest(
 
         List<UUID> hijosIds
 ) {
+
+    /**
+     * Normaliza la entrada antes de que corra la validación.
+     * <p>
+     * Jackson construye el record por su constructor canónico, así que este bloque se
+     * ejecuta antes que {@code @Email}. Sin esto, un correo copiado de una hoja de
+     * cálculo con un espacio al final se rechaza con 422 aunque sea perfectamente válido.
+     * <p>
+     * La normalización vive aquí y no en el servicio a propósito: es una propiedad de la
+     * entrada, no una regla de negocio. Ver CONTRIBUTING.md, sección "Validación de entrada".
+     */
+    public CrearUsuarioRequest {
+        if (nombre != null) {
+            nombre = nombre.trim();
+        }
+        if (correo != null) {
+            correo = correo.trim().toLowerCase();
+        }
+    }
 }

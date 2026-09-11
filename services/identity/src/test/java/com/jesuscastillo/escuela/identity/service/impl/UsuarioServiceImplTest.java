@@ -8,6 +8,8 @@ import com.jesuscastillo.escuela.identity.entity.Invitacion;
 import com.jesuscastillo.escuela.identity.entity.Rol;
 import com.jesuscastillo.escuela.identity.entity.TipoVinculo;
 import com.jesuscastillo.escuela.identity.entity.Usuario;
+import com.jesuscastillo.escuela.identity.event.EventoDeDominio;
+import com.jesuscastillo.escuela.identity.event.UsuarioSuspendidoV1;
 import com.jesuscastillo.escuela.identity.exception.ConflictoException;
 import com.jesuscastillo.escuela.identity.exception.RecursoNoEncontradoException;
 import com.jesuscastillo.escuela.identity.mapper.UsuarioMapper;
@@ -31,9 +33,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -148,7 +148,17 @@ class UsuarioServiceImplTest {
         service.suspender(usuario.getId());
 
         assertThat(usuario.getEstado()).isEqualTo(EstadoUsuario.SUSPENDIDO);
-        verify(outboxService).registrar(eq("usuario.suspendido"), anyInt(), eq(usuario.getId()), any());
+
+        ArgumentCaptor<EventoDeDominio> capturado = ArgumentCaptor.forClass(EventoDeDominio.class);
+        verify(outboxService).registrar(capturado.capture());
+
+        // Los campos son los que declara contracts/events/usuario.suspendido.v1.schema.json.
+        assertThat(capturado.getValue()).isInstanceOfSatisfying(UsuarioSuspendidoV1.class, evento -> {
+            assertThat(evento.tipo()).isEqualTo("usuario.suspendido");
+            assertThat(evento.version()).isEqualTo(1);
+            assertThat(evento.userId()).isEqualTo(usuario.getId());
+            assertThat(evento.schoolId()).isEqualTo(SCHOOL_ID);
+        });
     }
 
     @Test
@@ -159,7 +169,7 @@ class UsuarioServiceImplTest {
 
         service.suspender(usuario.getId());
 
-        verify(outboxService, never()).registrar(anyString(), anyInt(), any(), any());
+        verify(outboxService, never()).registrar(any());
     }
 
     @Test

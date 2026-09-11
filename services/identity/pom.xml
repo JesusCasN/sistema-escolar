@@ -53,6 +53,13 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-data-jpa</artifactId>
 		</dependency>
+		<!-- En Spring Boot 4 las autoconfiguraciones viven en modulos por tecnologia.
+		     flyway-core aporta la libreria; sin spring-boot-flyway nadie ejecuta las
+		     migraciones al arrancar, y el fallo es silencioso: no emite ningun log. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-flyway</artifactId>
+		</dependency>
 		<dependency>
 			<groupId>org.flywaydb</groupId>
 			<artifactId>flyway-core</artifactId>
@@ -85,8 +92,8 @@
 
 		<!-- Mensajeria de eventos (outbox -> Kafka) -->
 		<dependency>
-			<groupId>org.springframework.kafka</groupId>
-			<artifactId>spring-kafka</artifactId>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-kafka</artifactId>
 		</dependency>
 
 		<!-- Observabilidad y documentacion -->
@@ -152,6 +159,34 @@
 
 	<build>
 		<plugins>
+			<!-- Reglas del proyecto que rompen el build si no se cumplen (ver CONTRIBUTING.md).
+			     El parent de Spring Boot NO administra este plugin: la version va explicita. -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-enforcer-plugin</artifactId>
+				<version>3.6.3</version>
+				<executions>
+					<execution>
+						<id>reglas-del-proyecto</id>
+						<goals>
+							<goal>enforce</goal>
+						</goals>
+						<configuration>
+							<rules>
+								<!-- maven.compiler.release=21 impide usar APIs mas nuevas, pero no
+								     impide construir con otra JVM. Esta regla cierra esa brecha. -->
+								<requireJavaVersion>
+									<version>[21,22)</version>
+									<message>Este proyecto se construye con Java 21 LTS. Ver ADR-002.</message>
+								</requireJavaVersion>
+								<requireMavenVersion>
+									<version>[3.9,)</version>
+								</requireMavenVersion>
+							</rules>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>

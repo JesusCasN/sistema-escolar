@@ -1,4 +1,4 @@
-package com.jesuscastillo.escuela.identity.service.impl;
+package com.jesuscastillo.escuela.identity.messaging.publisher;
 
 import com.jesuscastillo.escuela.identity.entity.OutboxEvent;
 import com.jesuscastillo.escuela.identity.repository.OutboxRepository;
@@ -13,6 +13,10 @@ import java.util.List;
 
 /**
  * Publicador del outbox hacia Kafka.
+ * <p>
+ * Vive en {@code messaging/publisher} y no en {@code service/impl} a propósito: publicar
+ * eventos es infraestructura de mensajería, no lógica de negocio. Aquí no hay reglas del
+ * dominio, solo transporte (ver CONTRIBUTING.md).
  * <p>
  * Flujo:
  * 1. Cada cierto intervalo lee los eventos que siguen sin publicar, en orden de creación.

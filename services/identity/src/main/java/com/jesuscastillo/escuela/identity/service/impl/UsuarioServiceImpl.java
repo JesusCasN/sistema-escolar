@@ -10,6 +10,7 @@ import com.jesuscastillo.escuela.identity.entity.Rol;
 import com.jesuscastillo.escuela.identity.entity.TipoVinculo;
 import com.jesuscastillo.escuela.identity.entity.Usuario;
 import com.jesuscastillo.escuela.identity.entity.Vinculo;
+import com.jesuscastillo.escuela.identity.event.UsuarioSuspendidoV1;
 import com.jesuscastillo.escuela.identity.exception.ConflictoException;
 import com.jesuscastillo.escuela.identity.exception.RecursoNoEncontradoException;
 import com.jesuscastillo.escuela.identity.mapper.UsuarioMapper;
@@ -24,7 +25,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -37,16 +37,13 @@ import java.util.UUID;
  * <p>
  * Flujo de suspensión:
  * 1. Cambia el estado a SUSPENDIDO (baja lógica: nunca se borra un usuario).
- * 2. Registra {@code usuario.suspendido.v1} en el outbox para que los demás
- *    servicios cierren conversaciones y revoquen accesos.
+ * 2. Registra {@code usuario.suspendido.v1} en el outbox para que los demás servicios
+ *    cierren conversaciones y revoquen accesos.
  */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class UsuarioServiceImpl implements UsuarioService {
-
-    private static final String EVENTO_SUSPENDIDO = "usuario.suspendido";
-    private static final int VERSION_EVENTO_SUSPENDIDO = 1;
 
     private final UsuarioRepository usuarioRepository;
     private final InvitacionService invitacionService;
@@ -99,10 +96,7 @@ public class UsuarioServiceImpl implements UsuarioService {
 
         usuario.suspender();
 
-        outboxService.registrar(EVENTO_SUSPENDIDO, VERSION_EVENTO_SUSPENDIDO, usuario.getId(),
-                Map.of(
-                        "userId", usuario.getId(),
-                        "schoolId", usuario.getSchoolId()));
+        outboxService.registrar(UsuarioSuspendidoV1.de(usuario));
 
         log.info("Usuario suspendido id={}", id);
     }

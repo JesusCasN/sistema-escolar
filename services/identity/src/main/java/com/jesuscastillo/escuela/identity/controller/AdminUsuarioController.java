@@ -1,5 +1,6 @@
 package com.jesuscastillo.escuela.identity.controller;
 
+import com.jesuscastillo.escuela.identity.config.OpenApiConfig;
 import com.jesuscastillo.escuela.identity.dto.CrearUsuarioRequest;
 import com.jesuscastillo.escuela.identity.dto.PaginaUsuarios;
 import com.jesuscastillo.escuela.identity.dto.UsuarioResponse;
@@ -8,6 +9,7 @@ import com.jesuscastillo.escuela.identity.entity.Rol;
 import com.jesuscastillo.escuela.identity.service.UsuarioService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -31,12 +33,14 @@ import java.util.UUID;
  * Gestión de usuarios por parte de dirección.
  * <p>
  * Implementa la sección {@code /admin/usuarios} del contrato
- * {@code contracts/openapi/identity.yaml}.
+ * {@code contracts/openapi/identity.yaml}. A diferencia de los endpoints de invitación,
+ * todos estos exigen autenticación: por eso llevan el candado en Swagger UI.
  */
 @RestController
 @RequestMapping("/admin/usuarios")
 @RequiredArgsConstructor
 @Tag(name = "admin", description = "Gestion de usuarios (solo DIRECCION)")
+@SecurityRequirement(name = OpenApiConfig.ESQUEMA_BASICO)
 public class AdminUsuarioController {
 
     /** Tope de tamaño de página declarado en el contrato. */

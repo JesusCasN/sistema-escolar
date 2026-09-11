@@ -9,6 +9,8 @@ import com.jesuscastillo.escuela.identity.entity.EstadoUsuario;
 import com.jesuscastillo.escuela.identity.entity.Invitacion;
 import com.jesuscastillo.escuela.identity.entity.Rol;
 import com.jesuscastillo.escuela.identity.entity.Usuario;
+import com.jesuscastillo.escuela.identity.event.EventoDeDominio;
+import com.jesuscastillo.escuela.identity.event.UsuarioActivadoV1;
 import com.jesuscastillo.escuela.identity.exception.InvitacionNoVigenteException;
 import com.jesuscastillo.escuela.identity.exception.RecursoNoEncontradoException;
 import com.jesuscastillo.escuela.identity.mapper.UsuarioMapper;
@@ -19,6 +21,7 @@ import com.jesuscastillo.escuela.identity.service.OutboxService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -32,9 +35,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -144,7 +145,31 @@ class InvitacionServiceImplTest {
         assertThat(response.estado()).isEqualTo(EstadoUsuario.ACTIVO);
         assertThat(usuario.getPasswordHash()).startsWith("$argon2id$");
         assertThat(invitacion.vigente()).isFalse();
-        verify(outboxService).registrar(eq("usuario.activado"), anyInt(), eq(usuario.getId()), any());
+        verify(outboxService).registrar(any(UsuarioActivadoV1.class));
+    }
+
+    @Test
+    void aceptar_elEventoRegistradoCoincideConElEsquemaDelContrato() {
+        Usuario usuario = usuarioDePrueba();
+        Invitacion invitacion = Invitacion.para(usuario, HASH);
+        when(invitacionRepository.findByTokenHash(HASH)).thenReturn(Optional.of(invitacion));
+
+        service.aceptar(TOKEN, new AceptarInvitacionRequest(MetodoActivacion.PASSKEY, null));
+
+        ArgumentCaptor<EventoDeDominio> capturado = ArgumentCaptor.forClass(EventoDeDominio.class);
+        verify(outboxService).registrar(capturado.capture());
+
+        // Los campos son los que declara contracts/events/usuario.activado.v1.schema.json.
+        assertThat(capturado.getValue()).isInstanceOfSatisfying(UsuarioActivadoV1.class, evento -> {
+            assertThat(evento.tipo()).isEqualTo("usuario.activado");
+            assertThat(evento.version()).isEqualTo(1);
+            assertThat(evento.aggregateId()).isEqualTo(usuario.getId());
+            assertThat(evento.userId()).isEqualTo(usuario.getId());
+            assertThat(evento.schoolId()).isEqualTo(SCHOOL_ID);
+            assertThat(evento.rol()).isEqualTo(Rol.MAESTRO);
+            assertThat(evento.nombre()).isEqualTo("Ana Ruiz");
+            assertThat(evento.vinculos()).isEmpty();
+        });
     }
 
     @Test
