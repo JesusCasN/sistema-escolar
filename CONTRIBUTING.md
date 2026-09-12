@@ -194,9 +194,75 @@ y se registra la decisión en un ADR.
 
 ## Git
 
-- Rama por feature: `feat/NNN-nombre-corto` (NNN = número de spec). Merge a `main` vía PR.
 - Commits convencionales: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`.
-- El CI debe estar verde antes de mergear.
+  El sujeto va en minúsculas, en imperativo y **sin acentos**, para que ninguna
+  codificación ensucie el subject. El cuerpo explica el *por qué*, igual que un comentario.
+
+### Ramas
+
+**Nada se commitea directo a `main`.** Toda unidad de trabajo nace en una rama, incluso un
+`docs:` de una línea. No es ceremonia: es lo que garantiza que el CI corra **antes** de que
+`main` lo reciba. Una regla con excepciones obliga a decidir caso por caso qué es "trivial",
+y esa decisión siempre se toma a favor de la prisa.
+
+El prefijo de la rama es el mismo vocabulario de los commits:
+
+| Prefijo | Para qué |
+|---|---|
+| `feat/` | funcionalidad nueva |
+| `fix/` | corrección de un defecto |
+| `test/` | pruebas de código que ya existe |
+| `refactor/` | cambio interno sin cambio de comportamiento |
+| `docs/` | documentación, specs, ADRs, README |
+| `chore/` | build, dependencias, CI, estructura |
+
+Nomenclatura: `<tipo>/NNN-nombre-corto` cuando el trabajo pertenece a una spec, donde NNN
+es su número; `<tipo>/nombre-corto` cuando no pertenece a ninguna, como el README de la
+raíz. Ejemplos: `feat/001-authorization-server`, `test/001-tests-integracion`,
+`chore/ci-cachea-imagenes`.
+
+**Una rama es una unidad revertible**, no un tipo de cambio. Si una entrega trae varios
+commits de tipos distintos, van todos en la misma rama y el prefijo lo pone el tipo
+dominante. Lo que no cabe junto es lo que se revertiría por separado: eso es otra rama.
+
+### Secuencia
+
+```bash
+git switch main && git pull               # 1. partir de main actualizado
+git switch -c test/001-tests-integracion  # 2. rama con su prefijo
+# ... commits pequeños y convencionales ...
+./mvnw -pl services/identity verify       # 3. verde en local ANTES de empujar
+git push -u origin test/001-tests-integracion
+gh pr create --fill                       # 4. PR
+```
+
+5. **El CI verde es requisito, no sugerencia.** Si está rojo, se arregla en la rama.
+6. Se integra solo cuando se cumple la *Definition of Done* de la sección siguiente.
+7. Merge y limpieza en un paso:
+
+```bash
+gh pr merge --merge --delete-branch
+```
+
+### Merge commit, siempre
+
+`--merge` y nunca squash ni rebase. El squash fundiría en un commit los mensajes
+granulares que cuesta trabajo escribir, y el rebase borra la frontera de la entrega. El
+merge commit conserva las dos cosas: los commits individuales y el dato de qué commits
+formaban una entrega. Eso es lo que hace que revertirla completa sea un comando:
+
+```bash
+git revert -m 1 <sha-del-merge>
+```
+
+Conviene dejar en la configuración del repositorio en GitHub **solo** *Create a merge
+commit* habilitado. Con los tres botones disponibles, tarde o temprano se aprieta el que no
+era y el historial queda mezclado.
+
+**Si `main` avanzó mientras la rama estaba abierta**, se pone al día con `git rebase main`
+antes de integrar, para que el PR se revise contra el `main` de hoy y el CI pruebe lo que
+de verdad se va a mergear. Reescribir la propia rama y hacer `push --force-with-lease` es
+correcto; reescribir `main` no lo es nunca.
 
 ## Definition of Done
 
