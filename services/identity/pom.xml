@@ -20,6 +20,7 @@
 		<java.version>21</java.version>
 		<springdoc.version>3.1.1</springdoc.version>
 		<testcontainers.version>1.21.4</testcontainers.version>
+		<networknt.version>3.0.7</networknt.version>
 		<mapstruct.version>1.6.3</mapstruct.version>
 		<lombok-mapstruct-binding.version>0.2.0</lombok-mapstruct-binding.version>
 	</properties>
@@ -135,6 +136,14 @@
 			<artifactId>spring-boot-starter-security-test</artifactId>
 			<scope>test</scope>
 		</dependency>
+		<!-- La misma trampa de siempre en Boot 4: el modulo de web ya no arrastra
+		     RestTemplate, asi que TestRestTemplate truena con NoClassDefFoundError de
+		     RestTemplateBuilder. El starter trae el par completo. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-restclient</artifactId>
+			<scope>test</scope>
+		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-testcontainers</artifactId>
@@ -153,6 +162,25 @@
 		<dependency>
 			<groupId>org.testcontainers</groupId>
 			<artifactId>junit-jupiter</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<!-- Espera activa del mensaje en Kafka. Ya llegaba transitiva por
+		     spring-boot-starter-test; se declara para que sea una decision y no un
+		     accidente del arbol de dependencias. La version la administra el parent. -->
+		<dependency>
+			<groupId>org.awaitility</groupId>
+			<artifactId>awaitility</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<!-- Valida el evento publicado contra el esquema real de contracts/events, para
+		     que el contrato mande sobre el codigo tambien en las pruebas. El parent de
+		     Boot no administra esta libreria: la version va explicita. Su linea 3.x
+		     trabaja sobre tools.jackson (Jackson 3), el mismo del resto del servicio: no
+		     mete un segundo ObjectMapper al classpath. -->
+		<dependency>
+			<groupId>com.networknt</groupId>
+			<artifactId>json-schema-validator</artifactId>
+			<version>${networknt.version}</version>
 			<scope>test</scope>
 		</dependency>
 	</dependencies>
@@ -184,6 +212,29 @@
 								</requireMavenVersion>
 							</rules>
 						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+			<!-- Las pruebas *IT levantan contenedores y tardan; van en verify, no en test,
+			     para que un `mvn test` siga siendo rapido y sin Docker. La version la
+			     administra el parent de Spring Boot. -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-failsafe-plugin</artifactId>
+				<configuration>
+					<systemPropertyVariables>
+						<!-- Los contratos viven fuera del modulo. Se pasa la ruta por
+						     propiedad en vez de resolverla con ".." desde el codigo,
+						     que se rompe segun desde donde se lance la prueba. -->
+						<contratos.dir>${project.basedir}/../../contracts</contratos.dir>
+					</systemPropertyVariables>
+				</configuration>
+				<executions>
+					<execution>
+						<goals>
+							<goal>integration-test</goal>
+							<goal>verify</goal>
+						</goals>
 					</execution>
 				</executions>
 			</plugin>

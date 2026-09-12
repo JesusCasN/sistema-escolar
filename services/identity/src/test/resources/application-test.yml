@@ -1,0 +1,12 @@
+# Perfil de las pruebas de integracion. La conexion a Postgres y a Kafka NO va aqui:
+# la inyecta @ServiceConnection desde los contenedores, con puertos aleatorios.
+escuela:
+  identidad:
+    outbox:
+      # El planificador del outbox es el real; solo corre mas seguido para que una
+      # prueba no tenga que esperar los 5 s de produccion por cada evento.
+      intervalo-ms: 200
+
+logging:
+  level:
+    com.jesuscastillo.escuela: DEBUG
