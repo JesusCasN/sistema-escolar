@@ -39,7 +39,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     ProblemDetail validacion(MethodArgumentNotValidException ex) {
-        ProblemDetail p = ProblemDetail.forStatus(HttpStatus.UNPROCESSABLE_ENTITY);
+        ProblemDetail p = ProblemDetail.forStatus(HttpStatus.UNPROCESSABLE_CONTENT);
         p.setTitle("Datos inválidos");
         p.setDetail(ex.getBindingResult().getFieldErrors().stream()
                 .map(f -> f.getField() + ": " + f.getDefaultMessage())
@@ -54,7 +54,7 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(IllegalArgumentException.class)
     ProblemDetail argumentoInvalido(IllegalArgumentException ex) {
-        ProblemDetail p = ProblemDetail.forStatus(HttpStatus.UNPROCESSABLE_ENTITY);
+        ProblemDetail p = ProblemDetail.forStatus(HttpStatus.UNPROCESSABLE_CONTENT);
         p.setTitle("Datos inválidos");
         p.setDetail(ex.getMessage());
         return p;

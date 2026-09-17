@@ -86,10 +86,10 @@ Eventos (crear en `contracts/events/`):
 
 - [ ] Dirección da de alta un tutor; el tutor recibe (en logs/mock) su invitación y activa
       su cuenta con passkey; puede hacer login OIDC y `GET /me` regresa su rol y vínculos.
-- [ ] Una invitación expirada o ya usada regresa 410 y puede regenerarse.
+- [x] Una invitación expirada o ya usada regresa 410 y puede regenerarse.
 - [ ] Un access token emitido incluye claims `role` y `schoolId` verificables por otro servicio.
 - [ ] Un usuario SUSPENDIDO no puede autenticarse ni refrescar tokens.
-- [ ] Al activar un usuario se publica `usuario.activado.v1` (verificado con Testcontainers + Kafka).
+- [x] Al activar un usuario se publica `usuario.activado.v1` (verificado con Testcontainers + Kafka).
 - [ ] Tests de integración: alta→invitación→activación→login (flujo completo) en verde en CI.
 
 ## Fuera de alcance
